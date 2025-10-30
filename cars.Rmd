@@ -1,0 +1,114 @@
+---
+title: "cars"
+output: html_document
+---
+
+```{r}
+library(h2o)
+library(readr)
+h2o.init()
+```
+
+# Carga de datos en el cluster H2O
+
+Origen del dataset:
+
+- [UCI Machine Learning Repository: Auto MPG Data Set](https://archive.ics.uci.edu/ml/datasets/auto+mpg)
+
+Quinlan, R. (1993). Auto MPG [Dataset]. UCI Machine Learning Repository. https://doi.org/10.24432/C5859H.
+
+
+
+```{r}
+cars_df <- read_fwf("data/auto-mpg.data",
+                          fwf_cols(
+                            mpg = c(1, 4),
+                            cylinders = c(8, 8),
+                            displacement = c(10, 16),
+                            horsepower = c(20, 27),
+                            weight = c(32, 38),
+                            acceleration = c(44, 48),
+                            model_year = c(50, 53),
+                            origin = c(56, 56)
+                          ),
+                          col_types = cols(
+                            mpg = col_double(),
+                            cylinders = col_integer(),
+                            displacement = col_double(),
+                            horsepower = col_double(),
+                            weight = col_double(),
+                            acceleration = col_double(),
+                            model_year = col_integer(),
+                            origin = col_integer()
+                          ),
+                          trim_ws = TRUE,
+                          na = "?"
+)
+h2o_cars <- as.h2o(cars_df)
+```
+
+# Exploración inicial de los datos
+
+```{r}
+h2o.summary(h2o_cars)
+```
+```{r}
+h2o_cars$cylinders <- as.factor(h2o_cars$cylinders)
+h2o_cars$origin <- as.factor(h2o_cars$origin)
+```
+
+```{r}
+summary(h2o_cars)
+```
+
+```{r}
+h2o.quantile(h2o_cars, probs = seq(0, 1, 0.25))
+```
+```{r}
+h2o.hist(h2o_cars$mpg, breaks=20)
+```
+
+
+
+# Preparación de datos
+
+ 1. Selección de variables predictoras y objetivo
+ 2. Separación del dataset en conjunto de entrenamiento y pruebas
+
+```{r}
+X <- c("cylinders", "displacement", "horsepower", "weight", "acceleration", "model_year", "origin")
+y <- "mpg"
+```
+
+```{r}
+splits <- h2o.splitFrame(h2o_cars, ratios = 0.7, seed = 1301)
+train <- splits[[1]]
+test <- splits[[2]]
+```
+
+# Entrenamiento del modelo de regresión
+
+```{r}
+model <- h2o.glm(x = X, y = y, training_frame = train, 
+                 seed = 1301)
+```
+
+```{r}
+model
+```
+# Evaluación del modelo
+
+```{r}
+pred <- h2o.predict(model, test)
+```
+
+```{r}
+h2o.varimp_plot(model)
+```
+Métricas de rendimiento del modelo.
+
+```{r}
+h2o.performance(model, test)
+```
+
+
