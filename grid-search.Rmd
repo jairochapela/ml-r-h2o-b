@@ -1,0 +1,125 @@
+---
+title: "grid-search"
+output: html_document
+---
+
+```{r}
+library(h2o)
+h2o.init()
+```
+
+# Carga de datos en el cluster H2O
+
+```{r}
+data(iris)
+h2o_iris <- as.h2o(iris)
+```
+
+# Troceado del dataset
+
+```{r}
+splits <- h2o.splitFrame(h2o_iris, ratios = 0.8, seed = 1301)
+train <- splits[[1]]
+test <- splits[[2]]
+```
+
+# Definición de variables predictoras y objetivo
+
+```{r}
+X <- c("Sepal.Length", "Sepal.Width", "Petal.Length", "Petal.Width")
+y <- "Species"
+```
+
+# Grid search
+
+## Búsqueda en cuadrícula para optimización de hiperparámetros (estrategia cartesiana)
+
+```{r}
+hyperparams <- list(
+  ntrees = c(20, 50, 100),
+  max_depth = c(2, 5, 8)
+)
+
+grid1 <- h2o.grid(
+  algorithm = "gbm",
+  grid_id = "gbm_grid_cartesian",
+  x = X,
+  y = y,
+  training_frame = train,
+  hyper_params = hyperparams,
+  search_criteria = list(strategy = "Cartesian"),
+  seed = 1301
+)
+```
+
+```{r}
+grid1
+```
+### Evaluación de los modelos generados en la búsqueda en cuadrícula
+
+```{r}
+grid1_perf <- h2o.getGrid(
+  grid_id = "gbm_grid_cartesian",
+  sort_by = "r2",
+  decreasing = TRUE
+)
+
+grid1_perf
+```
+```{r}
+best_model <- h2o.getModel(grid1_perf@model_ids[[1]])
+best_model
+```
+
+```{r}
+h2o.performance(best_model, newdata = test)
+```
+## Búsqueda aleatoria
+
+```{r}
+hyperparams <- list(
+  ntrees = c(20, 35, 50, 80, 100),
+  max_depth = c(2, 3, 5, 8, 10, 15, 20),
+  learn_rate = c(0.01, 0.1, 0.3),
+  nbins = c(5, 10, 20, 30, 40),
+  sample_rate = c(0.7, 1.0)
+)
+
+grid2 <- h2o.grid(
+  algorithm = "gbm",
+  grid_id = "gbm_grid_random",
+  x = X,
+  y = y,
+  training_frame = train,
+  hyper_params = hyperparams,
+  #search_criteria = list(strategy = "RandomDiscrete", max_models = 20, seed = 67453),
+  search_criteria = list(strategy = "RandomDiscrete", max_runtime_secs = 20, seed = 67453),
+  seed = 1301
+)
+```
+
+
+```{r}
+grid2
+```
+
+### Evaluación de los modelos generados en la búsqueda aleatoria
+
+```{r}
+grid2_perf <- h2o.getGrid(
+  grid_id = "gbm_grid_random",
+  sort_by = "r2",
+  decreasing = TRUE
+)
+
+grid2_perf
+```
+```{r}
+best_model2 <- h2o.getModel(grid2_perf@model_ids[[1]])
+best_model2
+```
+
+```{r}
+h2o.performance(best_model2, newdata = test)
+```
+

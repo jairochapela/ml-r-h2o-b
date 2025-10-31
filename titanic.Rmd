@@ -1,0 +1,278 @@
+---
+title: "titanic"
+output: html_document
+---
+
+```{r}
+library(h2o)
+h2o.init()
+```
+
+```{r}
+# Semilla para los generadores de números aleatorios
+SEED <- 5621
+```
+
+
+
+# Carga de los datos en el clúster H2O
+
+```{r}
+# Subimos el dataset de Titanic al clúster H2O ubicado en un fichero local
+titanic_h2o <- h2o.uploadFile(path = "data/titanic.csv")
+```
+
+# Exploración de los datos
+
+```{r}
+# Visualizamos las primeras filas del dataset
+h2o.head(titanic_h2o)
+```
+
+```{r}
+h2o.describe(titanic_h2o)
+```
+# Limpieza y preparación de los datos
+
+```{r}
+# Convertir algunas columnas a factores
+titanic_h2o$survived <- as.factor(titanic_h2o$survived)
+titanic_h2o$pclass <- as.factor(titanic_h2o$pclass)
+```
+
+```{r}
+# Eliminar columnas que no son necesarias para el análisis
+titanic_h2o <- titanic_h2o[, c("survived", "pclass", "sex", "age", "sibsp", "parch", "fare", "embarked")]
+```
+
+```{r}
+summary(titanic_h2o)
+```
+```{r}
+# Manejo de valores faltantes
+titanic_h2o <- h2o.na_omit(titanic_h2o)
+```
+
+```{r}
+h2o.hist(titanic_h2o$age)
+```
+```{r}
+h2o.hist(titanic_h2o$fare, breaks = 40)
+```
+
+```{r}
+h2o.nrow(titanic_h2o)
+```
+
+
+# Entrenamiento de modelos
+
+
+```{r}
+# Definir variables predictoras y variable objetivo
+y <- "survived"
+x <- setdiff(names(titanic_h2o), y)
+```
+
+
+```{r}
+# Dividir los datos en conjunto de entrenamiento y prueba
+# (80% entrenamiento, 20% pruebas)
+splits <- h2o.splitFrame(titanic_h2o, ratios = 0.8, seed = SEED)
+train <- splits[[1]]
+test <- splits[[2]]
+```
+
+## Entrenamiento de un modelo de clasificación: Decision Tree
+
+```{r}
+dt_model <- h2o.decision_tree(
+  x = x,
+  y = y,
+  training_frame = train,
+  seed = SEED
+)
+```
+
+```{r}
+# Evaluar el modelo en el conjunto de prueba
+dt_perf <- h2o.performance(dt_model, newdata = test)
+dt_perf
+```
+
+```{r}
+# Matriz de confusión
+cm <- h2o.confusionMatrix(dt_perf)
+cm
+```
+```{r}
+# Tasa de aciertos
+cmm <- as.matrix(cm[1:2,1:2])
+sum(diag(cmm)) / sum(cmm)
+```
+
+## Entrenamiento de un modelo de clasificación: Random Forest
+
+```{r}
+rf_model <- h2o.randomForest(
+  x = x,
+  y = y,
+  training_frame = train,
+  seed = SEED
+)
+```
+
+```{r}
+rf_model
+```
+```{r}
+rf_model_perf <- h2o.performance(rf_model, newdata = test)
+rf_model_perf
+```
+```{r}
+cm <- h2o.confusionMatrix(rf_model_perf)
+cm
+
+cmm <- as.matrix(cm[1:2,1:2])
+sum(diag(cmm)) / sum(cmm)
+```
+## Búsqueda en grid
+
+```{r}
+hyper_params <- list(
+  ntrees = c(30, 50, 80, 100),
+  max_depth = c(10, 20, 30),
+  min_rows = c(1, 5, 10)
+)
+
+grid <- h2o.grid(
+  algorithm = "randomForest",
+  grid_id = "rf_grid_titanic",
+  x = x,
+  y = y,
+  training_frame = train,
+  hyper_params = hyper_params,
+  search_criteria = list(strategy = "RandomDiscrete", max_models = 20, seed = SEED),
+  seed = SEED
+)
+
+grid
+```
+```{r}
+# Obtener el mejor modelo basado en la precisión
+grid_hof <- h2o.getGrid(grid_id = "rf_grid_titanic", sort_by = "accuracy", decreasing = TRUE)
+grid_hof
+```
+```{r}
+best_rf_model <- h2o.getModel(grid_hof@model_ids[[1]])
+best_rf_model
+```
+
+```{r}
+best_rf_perf <- h2o.performance(best_rf_model, newdata = test)
+best_rf_perf
+```
+
+```{r}
+cm <- h2o.confusionMatrix(best_rf_perf)
+cm
+
+cmm <- as.matrix(cm[1:2,1:2])
+sum(diag(cmm)) / sum(cmm)
+```
+# Modelos apilados (Stacked ensembles)
+
+```{r}
+model_rf <- h2o.randomForest(
+  x = x,
+  y = y,
+  training_frame = train,
+  max_depth = 20,
+  ntrees = 50,
+  min_rows = 5,
+  nfolds = 5,
+  keep_cross_validation_predictions = TRUE,
+  seed = SEED
+)
+
+model_gbm <- h2o.gbm(
+  x = x,
+  y = y,
+  training_frame = train,
+  learn_rate = 0.05,
+  ntrees = 50,
+  max_depth = 15,
+  min_rows = 5,
+  nfolds = 5,
+  keep_cross_validation_predictions = TRUE,
+  seed = SEED
+)
+
+model_dl <- h2o.deeplearning(
+  x = x,
+  y = y,
+  training_frame = train,
+  hidden = c(20, 20),
+  epochs = 20,
+  nfolds = 5,
+  keep_cross_validation_predictions = TRUE,
+  seed = SEED
+)
+
+ensemble <- h2o.stackedEnsemble(
+  x = x,
+  y = y,
+  training_frame = train,
+  base_models = list(model_rf, model_gbm, model_dl)
+)
+
+ensemble
+```
+
+```{r}
+ensemble_perf <- h2o.performance(ensemble, newdata = test)
+ensemble_perf
+```
+```{r}
+cm <- h2o.confusionMatrix(ensemble_perf)
+cm
+
+cmm <- as.matrix(cm[1:2,1:2])
+sum(diag(cmm)) / sum(cmm)
+```
+# Predicciones con nuevos valores
+
+```{r}
+# Crear un nuevo pasajero para predecir
+nuevo_pasajero <- data.frame(
+  pclass = factor(1, levels = c(1, 2, 3)),
+  embarked = factor("S", levels = c("C", "Q", "S")),
+  sex = factor("female", levels = c("female", "male")),
+  age = 28,
+  sibsp = 1,
+  parch = 2,
+  fare = 40.35
+)
+
+nuevo_pasajero_h2o <- as.h2o(nuevo_pasajero)
+```
+
+```{r}
+prediccion <- h2o.predict(ensemble, nuevo_pasajero_h2o)
+prediccion
+```
+
+
+# Explotación del modelo
+
+```{r}
+# Guardado del modelo entrenado
+h2o.saveModel(ensemble, path = "models", force = TRUE)
+```
+
+```{r}
+# Exportar el modelo a MOJO
+h2o.download_mojo(ensemble, path = "models", get_genmodel_jar = TRUE)
+```
+
+
