@@ -136,6 +136,15 @@ cm
 cmm <- as.matrix(cm[1:2,1:2])
 sum(diag(cmm)) / sum(cmm)
 ```
+
+Importancia de las variables
+
+```{r}
+h2o.varimp_plot(rf_model)
+```
+
+
+
 ## Búsqueda en grid
 
 ```{r}
